@@ -194,6 +194,7 @@ function onUp(e) {
     if (len > 5) {
       const dir = { x: dx / len, y: dy / len };
       fixedPath = computePath(dragStart, dir, parseInt(bounceSlider.value));
+      fixedPath.pullEnd = { x: dragEnd.x, y: dragEnd.y };
     }
   }
   draw();
@@ -307,6 +308,7 @@ function draw() {
       ctx.lineTo(dragEnd.x, dragEnd.y);
       ctx.stroke();
       ctx.setLineDash([]);
+
     }
 
     // Snap indicator on drag end
@@ -332,6 +334,27 @@ function draw() {
     // Draw ball at drag start
     drawBall(dragStart.x, dragStart.y);
   } else if (fixedPath) {
+    // Pull line (start → pull end)
+    if (fixedPath.pullEnd) {
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(fixedPath.origin.x, fixedPath.origin.y);
+      ctx.lineTo(fixedPath.pullEnd.x, fixedPath.pullEnd.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Pull end marker
+      ctx.beginPath();
+      ctx.arc(fixedPath.pullEnd.x, fixedPath.pullEnd.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
     drawBall(fixedPath.origin.x, fixedPath.origin.y);
   }
 }
@@ -345,6 +368,24 @@ function drawPath(points, lineWidth, alpha) {
     ctx.beginPath();
     ctx.moveTo(points[i].x, points[i].y);
     ctx.lineTo(points[i + 1].x, points[i + 1].y);
+    ctx.stroke();
+
+    // Chevron at segment midpoint showing direction
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    const sdx = points[i + 1].x - points[i].x;
+    const sdy = points[i + 1].y - points[i].y;
+    const sAngle = Math.atan2(sdy, sdx);
+    const chevSize = 8;
+    const chevAngle = Math.PI * 0.75;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth + 0.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(mx + chevSize * Math.cos(sAngle + chevAngle), my + chevSize * Math.sin(sAngle + chevAngle));
+    ctx.lineTo(mx, my);
+    ctx.lineTo(mx + chevSize * Math.cos(sAngle - chevAngle), my + chevSize * Math.sin(sAngle - chevAngle));
     ctx.stroke();
 
     // Bounce number & dot at collision point
