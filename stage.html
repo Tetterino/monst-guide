@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ルート探し</title>
+<link rel="stylesheet" href="assets/common.css">
+<style>
+  body.page { user-select: none; }
+  h1 { margin-bottom: 4px !important; }
+  .note { font-size: 0.8rem; color: #aaa; margin: 0 0 10px; text-align: center; max-width: 420px; }
+  #app:not([hidden]) { display: flex; flex-direction: column; align-items: center; width: 100%; }
+
+  .controls {
+    display: flex;
+    gap: 10px 16px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 440px;
+    font-size: 0.85rem;
+  }
+  .controls label { display: flex; align-items: center; gap: 6px; }
+  .controls input[type="range"] { width: 100px; accent-color: #e94560; }
+  .controls select,
+  .controls input[type="number"] {
+    width: 72px;
+    background: #16213e;
+    color: #eee;
+    border: 1px solid #2c3a5e;
+    border-radius: 4px;
+    padding: 3px 6px;
+  }
+  .controls select { width: auto; max-width: 100%; }
+  .controls label:has(select) { flex-basis: 100%; justify-content: center; }
+
+  button {
+    background: #e94560;
+    color: #fff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button:hover { background: #c73650; }
+  button:disabled { background: #555; cursor: default; }
+  button.sub { background: #2c3a5e; }
+  button.sub:hover { background: #3a4a72; }
+
+  canvas {
+    border: 2px solid #e94560;
+    border-radius: 8px;
+    touch-action: none;
+    max-width: 100%;
+    cursor: crosshair;
+  }
+  .hint { font-size: 0.75rem; color: #888; margin: 6px 0 0; text-align: center; max-width: 420px; }
+
+  .result {
+    width: 100%;
+    max-width: 420px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #16213e;
+    border: 1px solid #2c3a5e;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+  .result.ok { border-color: #7ed321; }
+  .result.ng { border-color: #e94560; }
+
+  section.panel { width: 100%; max-width: 420px; }
+  section.panel h2 { margin-top: 18px; }
+
+  .obj-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .obj-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #16213e;
+    border: 1px solid transparent;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .obj-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #7ed321; }
+  .obj-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .obj-name { flex: 1; min-width: 0; }
+  .obj-type { color: #888; font-size: 0.75rem; }
+
+  .search-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .search-list button { width: 100%; text-align: left; background: #16213e; border: 1px solid #2c3a5e; }
+  .search-list button:hover { border-color: #7ed321; background: #16213e; }
+  .search-summary { font-size: 0.8rem; color: #aaa; margin: 6px 0 0; }
+</style>
+</head>
+<body class="page">
+
+<nav class="nav" id="nav"><a href="./">トップ</a></nav>
+
+<h1 id="title">ステージが見つかりません</h1>
+<p class="note" id="note"></p>
+
+<div id="app" hidden>
+  <div class="controls">
+    <label>狙い: <select id="rule"></select></label>
+    <label>
+      反射回数:
+      <input type="range" id="bounceCount" min="1" max="30" value="10">
+      <span id="bounceVal">10</span>
+    </label>
+    <label>角度: <input type="number" id="angle" step="0.5" min="0" max="360">°</label>
+    <button id="clearBtn" class="sub">クリア</button>
+    <button id="resetBtn" class="sub">初期状態に戻す</button>
+  </div>
+
+  <canvas id="field" width="420" height="468"></canvas>
+  <p class="hint">ドラッグで発射（引っ張った逆方向に飛ぶ／真上が 0°）。円をタップで ON / OFF、自キャラはドラッグで移動</p>
+
+  <div class="result" id="result"></div>
+
+  <section class="panel">
+    <h2>自動探索</h2>
+    <button id="searchBtn">成功する角度を探す</button>
+    <p class="search-summary" id="searchSummary"></p>
+    <ul class="search-list" id="searchList"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>敵・本（ON / OFF）</h2>
+    <ul class="obj-list" id="objectList"></ul>
+  </section>
+</div>
+
+<script src="data/quests.js"></script>
+<script src="assets/route-sim.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const quest = findQuest(params.get('q'));
+const stageNo = params.get('s');
+const stage = quest && quest.stages[stageNo];
+
+if (stage) {
+  const diff = findDifficulty(quest.difficulty);
+  document.title = `${diff.name}${quest.name} ステージ${stageNo} ルート探し`;
+  document.getElementById('title').textContent = `${quest.name} ステージ${stageNo}`;
+  document.getElementById('note').textContent = stage.note;
+
+  const nav = document.getElementById('nav');
+  const diffLink = document.createElement('a');
+  diffLink.href = `./?d=${diff.id}`;
+  diffLink.textContent = diff.name;
+  const questLink = document.createElement('a');
+  questLink.href = `quest.html?q=${quest.id}`;
+  questLink.textContent = quest.name;
+  nav.append(' › ', diffLink, ' › ', questLink, ` › ステージ${stageNo}`);
+
+  document.getElementById('app').hidden = false;
+
+  const $ = id => document.getElementById(id);
+
+  window.routeSim = RouteSim.mount({
+    canvas: $('field'),
+    stage,
+    storageKey: `monst-guide:${quest.id}:stage${stageNo}`,
+    ui: {
+      bounceCount: $('bounceCount'),
+      bounceVal: $('bounceVal'),
+      rule: $('rule'),
+      angle: $('angle'),
+      clearBtn: $('clearBtn'),
+      result: $('result'),
+      searchBtn: $('searchBtn'),
+      searchSummary: $('searchSummary'),
+      searchList: $('searchList'),
+      objectList: $('objectList'),
+      resetBtn: $('resetBtn'),
+    },
+  });
+}
+</script>
+</body>
+</html>

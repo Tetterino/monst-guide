@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ステージ選択</title>
+<link rel="stylesheet" href="assets/common.css">
+</head>
+<body class="page">
+
+<nav class="nav" id="nav"><a href="./">トップ</a></nav>
+
+<h1 id="title">クエストが見つかりません</h1>
+
+<ul class="menu" id="stageList"></ul>
+
+<script src="data/quests.js"></script>
+<script>
+const quest = findQuest(new URLSearchParams(location.search).get('q'));
+
+if (quest) {
+  const diff = findDifficulty(quest.difficulty);
+  document.title = `${diff.name}${quest.name} ステージ選択`;
+  document.getElementById('title').textContent = `${diff.name} ${quest.name}`;
+
+  const nav = document.getElementById('nav');
+  const diffLink = document.createElement('a');
+  diffLink.href = `./?d=${diff.id}`;
+  diffLink.textContent = diff.name;
+  nav.append(' › ', diffLink, ` › ${quest.name}`);
+
+  const list = document.getElementById('stageList');
+  for (let s = 1; s <= quest.stageCount; s++) {
+    const stage = quest.stages[s];
+    const li = document.createElement('li');
+    if (stage) {
+      const a = document.createElement('a');
+      a.href = `stage.html?q=${quest.id}&s=${s}`;
+      const small = document.createElement('small');
+      small.textContent = stage.note;
+      a.append(`ステージ${s}`, small);
+      li.appendChild(a);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'disabled';
+      span.textContent = `ステージ${s}（準備中）`;
+      li.appendChild(span);
+    }
+    list.appendChild(li);
+  }
+}
+</script>
+</body>
+</html>

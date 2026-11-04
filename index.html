@@ -3,455 +3,62 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>モンスト 壁反射シミュレーター</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #1a1a2e;
-    color: #eee;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    min-height: 100vh;
-    padding: 16px;
-    user-select: none;
-  }
-  h1 {
-    font-size: 1.3rem;
-    margin-bottom: 8px;
-    color: #e94560;
-  }
-  .controls {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .controls label {
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .controls input[type="range"] {
-    width: 100px;
-    accent-color: #e94560;
-  }
-  .controls button {
-    background: #e94560;
-    color: #fff;
-    border: none;
-    padding: 6px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.85rem;
-  }
-  .controls button:hover { background: #c73650; }
-  canvas {
-    border: 2px solid #e94560;
-    border-radius: 8px;
-    cursor: crosshair;
-    touch-action: none;
-    max-width: 100%;
-  }
-  .hint {
-    font-size: 0.75rem;
-    color: #888;
-    margin-top: 8px;
-    text-align: center;
-  }
-</style>
+<title>モンスト ガイド</title>
+<link rel="stylesheet" href="assets/common.css">
 </head>
-<body>
+<body class="page">
 
-<h1>壁反射シミュレーター</h1>
+<h1>モンスト ガイド</h1>
 
-<div class="controls">
-  <label>
-    反射回数:
-    <input type="range" id="bounceCount" min="1" max="30" value="10">
-    <span id="bounceVal">10</span>
-  </label>
-  <button id="clearBtn">クリア</button>
-</div>
+<h2>ツール</h2>
+<ul class="menu">
+  <li><a href="reflect.html">壁反射シミュレーター<small>引っ張った方向から壁での跳ね返りを確認する</small></a></li>
+</ul>
 
-<canvas id="field" width="420" height="560"></canvas>
-<p class="hint">フィールド上をドラッグして発射方向を決めよう（引っ張った逆方向に飛ぶ）</p>
+<h2>クエスト</h2>
+<div class="chips" id="difficultyFilter"></div>
+<ul class="menu" id="questList"></ul>
 
+<script src="data/quests.js"></script>
 <script>
-const canvas = document.getElementById('field');
-const ctx = canvas.getContext('2d');
-const bounceSlider = document.getElementById('bounceCount');
-const bounceVal = document.getElementById('bounceVal');
-const clearBtn = document.getElementById('clearBtn');
+const filterEl = document.getElementById('difficultyFilter');
+const listEl = document.getElementById('questList');
 
-// State
-let dragStart = null;   // where the finger/mouse went down (= ball position)
-let dragEnd = null;     // current drag position
-let isDragging = false;
-let fixedPath = null;   // confirmed path after release
+// 難易度フィルタは ?d=<難易度ID> で保持（パンくずから戻ったときも絞り込んだまま）
+let current = new URLSearchParams(location.search).get('d') || '';
+if (current && !findDifficulty(current)) current = '';
 
-const BALL_RADIUS = 14;
-const FIELD_PADDING = 24; // inner padding from canvas edge
-
-// Grid & snap settings
-const GRID_COLS = 8;
-const GRID_ROWS = 8;
-const FIELD_W = canvas.width - FIELD_PADDING * 2;
-const FIELD_H = canvas.height - FIELD_PADDING * 2;
-const GRID_STEP_X = FIELD_W / GRID_COLS;
-const GRID_STEP_Y = FIELD_H / GRID_ROWS;
-const SNAP_THRESHOLD = 6; // px以内ならグリッドに吸着
-
-function snapToGrid(p) {
-  // Find nearest grid intersection
-  const relX = p.x - FIELD_PADDING;
-  const relY = p.y - FIELD_PADDING;
-  const nearX = Math.round(relX / GRID_STEP_X) * GRID_STEP_X + FIELD_PADDING;
-  const nearY = Math.round(relY / GRID_STEP_Y) * GRID_STEP_Y + FIELD_PADDING;
-  const dx = p.x - nearX;
-  const dy = p.y - nearY;
-  if (Math.sqrt(dx * dx + dy * dy) <= SNAP_THRESHOLD) {
-    return { x: nearX, y: nearY, snapped: true };
-  }
-  return { x: p.x, y: p.y, snapped: false };
-}
-
-// Colors for successive bounce segments
-const SEGMENT_COLORS = [
-  '#e94560', '#f5a623', '#f8e71c', '#7ed321',
-  '#4a90d9', '#9b59b6', '#1abc9c', '#e67e22',
-  '#e74c3c', '#2ecc71', '#3498db', '#9b59b6',
-];
-
-bounceSlider.addEventListener('input', () => {
-  bounceVal.textContent = bounceSlider.value;
-  if (fixedPath) {
-    fixedPath = computePath(fixedPath.origin, fixedPath.dir, parseInt(bounceSlider.value));
-  }
-  draw();
-});
-
-clearBtn.addEventListener('click', () => {
-  fixedPath = null;
-  dragStart = null;
-  dragEnd = null;
-  draw();
-});
-
-// ---- Pointer events (mouse + touch) ----
-function getPos(e) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  return {
-    x: (clientX - rect.left) * scaleX,
-    y: (clientY - rect.top) * scaleY,
-  };
-}
-
-canvas.addEventListener('mousedown', onDown);
-canvas.addEventListener('mousemove', onMove);
-canvas.addEventListener('mouseup', onUp);
-canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e); }, { passive: false });
-canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e); }, { passive: false });
-canvas.addEventListener('touchend', e => { e.preventDefault(); onUp(e); }, { passive: false });
-
-function onDown(e) {
-  const p = getPos(e);
-  // Snap first (raw position), then clamp only if not snapped
-  const snapped = snapToGrid(p);
-  if (!snapped.snapped) {
-    snapped.x = clamp(snapped.x, FIELD_PADDING, canvas.width - FIELD_PADDING);
-    snapped.y = clamp(snapped.y, FIELD_PADDING, canvas.height - FIELD_PADDING);
-  }
-  dragStart = snapped;
-  dragEnd = { x: p.x, y: p.y };
-  isDragging = true;
-  fixedPath = null;
-  draw();
-}
-
-function onMove(e) {
-  if (!isDragging) return;
-  const p = getPos(e);
-  dragEnd = snapToGrid(p);
-  draw();
-}
-
-function onUp(e) {
-  if (!isDragging) return;
-  isDragging = false;
-  if (dragStart && dragEnd) {
-    const dx = dragStart.x - dragEnd.x; // reversed: slingshot style
-    const dy = dragStart.y - dragEnd.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len > 5) {
-      const dir = { x: dx / len, y: dy / len };
-      fixedPath = computePath(dragStart, dir, parseInt(bounceSlider.value));
-      fixedPath.pullEnd = { x: dragEnd.x, y: dragEnd.y };
-    }
-  }
-  draw();
-}
-
-// ---- Reflection logic ----
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-function computePath(origin, dir, maxBounces) {
-  const minX = FIELD_PADDING;
-  const maxX = canvas.width - FIELD_PADDING;
-  const minY = FIELD_PADDING;
-  const maxY = canvas.height - FIELD_PADDING;
-
-  const points = [{ x: origin.x, y: origin.y }];
-  let cx = origin.x, cy = origin.y;
-  let dx = dir.x, dy = dir.y;
-
-  // If starting on a wall and direction points into it, reflect immediately
-  const eps = 0.5;
-  if (cx <= minX + eps && dx < 0) dx = -dx;
-  if (cx >= maxX - eps && dx > 0) dx = -dx;
-  if (cy <= minY + eps && dy < 0) dy = -dy;
-  if (cy >= maxY - eps && dy > 0) dy = -dy;
-
-  for (let i = 0; i < maxBounces; i++) {
-    // Find nearest wall collision
-    let tMin = Infinity;
-
-    // Left wall
-    if (dx < 0) { const t = (minX - cx) / dx; if (t > 0.01 && t < tMin) tMin = t; }
-    // Right wall
-    if (dx > 0) { const t = (maxX - cx) / dx; if (t > 0.01 && t < tMin) tMin = t; }
-    // Top wall
-    if (dy < 0) { const t = (minY - cy) / dy; if (t > 0.01 && t < tMin) tMin = t; }
-    // Bottom wall
-    if (dy > 0) { const t = (maxY - cy) / dy; if (t > 0.01 && t < tMin) tMin = t; }
-
-    if (tMin === Infinity) break;
-
-    const nx = cx + dx * tMin;
-    const ny = cy + dy * tMin;
-    points.push({ x: nx, y: ny });
-
-    // Determine which wall was hit and reflect
-    const eps = 0.5;
-    if (nx <= minX + eps || nx >= maxX - eps) dx = -dx;
-    if (ny <= minY + eps || ny >= maxY - eps) dy = -dy;
-
-    cx = nx;
-    cy = ny;
+function render() {
+  filterEl.textContent = '';
+  for (const d of [{ id: '', name: 'すべて' }, ...DIFFICULTIES]) {
+    const btn = document.createElement('button');
+    btn.textContent = d.name;
+    btn.setAttribute('aria-pressed', String(d.id === current));
+    btn.addEventListener('click', () => {
+      current = d.id;
+      history.replaceState(null, '', current ? `?d=${current}` : location.pathname);
+      render();
+    });
+    filterEl.appendChild(btn);
   }
 
-  return { origin, dir, points };
-}
-
-// ---- Drawing ----
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Field background
-  ctx.fillStyle = '#16213e';
-  ctx.fillRect(FIELD_PADDING, FIELD_PADDING,
-    canvas.width - FIELD_PADDING * 2,
-    canvas.height - FIELD_PADDING * 2);
-
-  // Grid lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= GRID_COLS; i++) {
-    const x = FIELD_PADDING + i * GRID_STEP_X;
-    ctx.beginPath(); ctx.moveTo(x, FIELD_PADDING); ctx.lineTo(x, canvas.height - FIELD_PADDING); ctx.stroke();
-  }
-  for (let i = 0; i <= GRID_ROWS; i++) {
-    const y = FIELD_PADDING + i * GRID_STEP_Y;
-    ctx.beginPath(); ctx.moveTo(FIELD_PADDING, y); ctx.lineTo(canvas.width - FIELD_PADDING, y); ctx.stroke();
-  }
-  // Grid intersection dots
-  for (let ix = 0; ix <= GRID_COLS; ix++) {
-    for (let iy = 0; iy <= GRID_ROWS; iy++) {
-      const gx = FIELD_PADDING + ix * GRID_STEP_X;
-      const gy = FIELD_PADDING + iy * GRID_STEP_Y;
-      ctx.beginPath();
-      ctx.arc(gx, gy, 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      ctx.fill();
-    }
-  }
-
-  // Draw the fixed path
-  if (fixedPath) {
-    drawPath(fixedPath.points, 3, 1.0);
-  }
-
-  // Live preview while dragging
-  if (isDragging && dragStart && dragEnd) {
-    const dx = dragStart.x - dragEnd.x;
-    const dy = dragStart.y - dragEnd.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len > 5) {
-      const dir = { x: dx / len, y: dy / len };
-      const preview = computePath(dragStart, dir, parseInt(bounceSlider.value));
-      drawPath(preview.points, 2, 0.5);
-
-      // Draw pull line (slingshot guide)
-      ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(dragStart.x, dragStart.y);
-      ctx.lineTo(dragEnd.x, dragEnd.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-    }
-
-    // Snap indicator on drag end
-    if (dragEnd.snapped) {
-      ctx.beginPath();
-      ctx.arc(dragEnd.x, dragEnd.y, 8, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(233,69,96,0.7)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-    // Snap indicator on start
-    if (dragStart.snapped) {
-      ctx.beginPath();
-      ctx.arc(dragStart.x, dragStart.y, BALL_RADIUS + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(233,69,96,0.5)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // Draw ball at drag start
-    drawBall(dragStart.x, dragStart.y);
-  } else if (fixedPath) {
-    // Pull line (start → pull end)
-    if (fixedPath.pullEnd) {
-      ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(fixedPath.origin.x, fixedPath.origin.y);
-      ctx.lineTo(fixedPath.pullEnd.x, fixedPath.pullEnd.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Pull end marker
-      ctx.beginPath();
-      ctx.arc(fixedPath.pullEnd.x, fixedPath.pullEnd.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
-    drawBall(fixedPath.origin.x, fixedPath.origin.y);
+  listEl.textContent = '';
+  for (const q of QUESTS.filter(q => !current || q.difficulty === current)) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = `quest.html?q=${q.id}`;
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = findDifficulty(q.difficulty).name;
+    const small = document.createElement('small');
+    small.textContent = q.description;
+    a.append(badge, q.name, small);
+    li.appendChild(a);
+    listEl.appendChild(li);
   }
 }
 
-function drawPath(points, lineWidth, alpha) {
-  for (let i = 0; i < points.length - 1; i++) {
-    const color = SEGMENT_COLORS[i % SEGMENT_COLORS.length];
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    ctx.beginPath();
-    ctx.moveTo(points[i].x, points[i].y);
-    ctx.lineTo(points[i + 1].x, points[i + 1].y);
-    ctx.stroke();
-
-    // Chevron at segment midpoint showing direction
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    const sdx = points[i + 1].x - points[i].x;
-    const sdy = points[i + 1].y - points[i].y;
-    const sAngle = Math.atan2(sdy, sdx);
-    const chevSize = 8;
-    const chevAngle = Math.PI * 0.75;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth + 0.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(mx + chevSize * Math.cos(sAngle + chevAngle), my + chevSize * Math.sin(sAngle + chevAngle));
-    ctx.lineTo(mx, my);
-    ctx.lineTo(mx + chevSize * Math.cos(sAngle - chevAngle), my + chevSize * Math.sin(sAngle - chevAngle));
-    ctx.stroke();
-
-    // Bounce number & dot at collision point
-    if (i > 0) {
-      const px = points[i].x;
-      const py = points[i].y;
-
-      // Offset label toward field interior based on which wall was hit
-      const epsW = 1;
-      let ox = 0, oy = -14;
-      if (py <= FIELD_PADDING + epsW)                  oy =  14; // top wall → below
-      if (py >= canvas.height - FIELD_PADDING - epsW)  oy = -14; // bottom wall → above
-      if (px <= FIELD_PADDING + epsW)                  ox =  14; // left wall → right
-      if (px >= canvas.width - FIELD_PADDING - epsW)   ox = -14; // right wall → left
-
-      // Background pill
-      const label = String(i);
-      ctx.font = 'bold 11px sans-serif';
-      const tw = ctx.measureText(label).width;
-      const bw = tw + 8, bh = 16, br = 4;
-      const bx = px + ox - bw / 2;
-      const by = py + oy - bh / 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.beginPath();
-      ctx.roundRect(bx, by, bw, bh, br);
-      ctx.fill();
-
-      // Number text
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, px + ox, py + oy);
-
-      // Small dot
-      ctx.beginPath();
-      ctx.arc(px, py, 3, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawBall(x, y) {
-  // Shadow
-  ctx.beginPath();
-  ctx.arc(x + 2, y + 2, BALL_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fill();
-
-  // Ball body
-  const grad = ctx.createRadialGradient(x - 4, y - 4, 2, x, y, BALL_RADIUS);
-  grad.addColorStop(0, '#fff');
-  grad.addColorStop(0.3, '#e94560');
-  grad.addColorStop(1, '#a11d33');
-  ctx.beginPath();
-  ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-}
-
-// Initial draw
-draw();
+render();
 </script>
 </body>
 </html>
