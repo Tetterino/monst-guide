@@ -6,6 +6,7 @@
 (function () {
   const FIELD_PADDING = 24;
   const BALL_RADIUS = 14;
+  const WALL_FRAME_WIDTH = 3;
   const GRID_COLS = 8;
   const GRID_ROWS = 8;
   const SEARCH_STEPS = 720; // 自動探索の分解能（0.5°刻み）
@@ -55,11 +56,11 @@
     const H = canvas.height;
     const FIELD_W = W - FIELD_PADDING * 2;
     const FIELD_H = H - FIELD_PADDING * 2;
-    // 自キャラ中心が動ける範囲（自キャラの縁が壁に当たったら反射）
-    const minX = FIELD_PADDING + BALL_RADIUS;
-    const maxX = W - FIELD_PADDING - BALL_RADIUS;
-    const minY = FIELD_PADDING + BALL_RADIUS;
-    const maxY = H - FIELD_PADDING - BALL_RADIUS;
+    // 壁＝フィールドの縁。自キャラの判定は点（中心）で、中心が壁に達したら反射
+    const minX = FIELD_PADDING;
+    const maxX = W - FIELD_PADDING;
+    const minY = FIELD_PADDING;
+    const maxY = H - FIELD_PADDING;
 
     // ---- State ----
     // 敵・本の位置と大きさはプリセット固定。変えられるのは ON/OFF と自キャラの位置だけ
@@ -169,7 +170,7 @@
       segs.forEach((s, si) => {
         const hits = [];
         for (const o of active) {
-          const t = entryT(s.a, s.b, o, o.r + BALL_RADIUS);
+          const t = entryT(s.a, s.b, o, o.r);
           if (t !== null) hits.push({ t, o });
         }
         hits.sort((p, q) => p.t - q.t);
@@ -485,6 +486,7 @@
         ctx.beginPath(); ctx.moveTo(FIELD_PADDING, y); ctx.lineTo(W - FIELD_PADDING, y); ctx.stroke();
       }
 
+      drawWallFrame();
       if (result && result.needsWalls) drawWalls(result.wallsHit);
       if (searchResult) drawSearchFan();
 
@@ -510,9 +512,17 @@
       drawBall(ball.x, ball.y);
     }
 
+    // 壁の赤枠: 線の内側の縁がちょうど壁（フィールドの縁）になるよう、壁の外側に描く
+    function drawWallFrame() {
+      const h = WALL_FRAME_WIDTH / 2;
+      ctx.strokeStyle = '#e94560';
+      ctx.lineWidth = WALL_FRAME_WIDTH;
+      ctx.strokeRect(minX - h, minY - h, maxX - minX + WALL_FRAME_WIDTH, maxY - minY + WALL_FRAME_WIDTH);
+    }
+
     // 本に当たる前に触れた壁を緑、まだの壁を灰色で示す
     function drawWalls(wallsHit) {
-      const L = FIELD_PADDING, R = W - FIELD_PADDING, T = FIELD_PADDING, B = H - FIELD_PADDING;
+      const L = minX, R = maxX, T = minY, B = maxY; // 壁の位置
       const lines = {
         top: [L, T, R, T], right: [R, T, R, B], bottom: [L, B, R, B], left: [L, T, L, B],
       };
@@ -617,11 +627,11 @@
     // 各面に初めて触れた点は面の色の丸＋ラベル、2回目以降は小さい点
     function drawWallContacts(result) {
       if (!result.needsWalls) return;
-      const L = FIELD_PADDING, R = W - FIELD_PADDING, T = FIELD_PADDING, B = H - FIELD_PADDING;
+      const L = minX, R = maxX, T = minY, B = maxY; // 壁の位置
       const seen = new Set();
       for (const e of result.events.slice(result.wallFrom, result.wallTo)) {
         if (e.kind !== 'wall') continue;
-        // 自キャラの中心ではなく、縁が壁に触れた位置に描く
+        // 壁（赤枠）上に描く
         const c = result.segs[e.seg].b;
         const p = {
           top: { x: c.x, y: T }, bottom: { x: c.x, y: B },

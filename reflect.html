@@ -52,8 +52,6 @@
   }
   .controls button:hover { background: #c73650; }
   canvas {
-    border: 2px solid #e94560;
-    border-radius: 8px;
     cursor: crosshair;
     touch-action: none;
     max-width: 100%;
@@ -287,6 +285,8 @@ function draw() {
     }
   }
 
+  drawWallFrame();
+
   // Draw the fixed path
   if (fixedPath) {
     drawPath(fixedPath.points, 3, 1.0);
@@ -360,6 +360,15 @@ function draw() {
 
     drawBall(fixedPath.origin.x, fixedPath.origin.y);
   }
+}
+
+// 壁の赤枠: 線の内側の縁がちょうど壁判定の位置になるよう、壁の外側に描く
+const WALL_FRAME_WIDTH = 3;
+function drawWallFrame() {
+  const h = WALL_FRAME_WIDTH / 2;
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = WALL_FRAME_WIDTH;
+  ctx.strokeRect(FIELD_PADDING - h, FIELD_PADDING - h, FIELD_W + WALL_FRAME_WIDTH, FIELD_H + WALL_FRAME_WIDTH);
 }
 
 function drawPath(points, lineWidth, alpha) {

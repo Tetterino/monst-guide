@@ -33,8 +33,8 @@ window.QUESTS = [
         ball: { x: 174, y: 137 },
         objects: [
           { id: 'eye-tl', label: '目玉左上', type: 'enemy', x: 55,  y: 56,  r: 20, on: true },
-          { id: 'eye-tr', label: '目玉右上', type: 'enemy', x: 281, y: 128, r: 20, on: true },
-          { id: 'eye-bl', label: '目玉左下', type: 'enemy', x: 139, y: 340, r: 20, on: true },
+          { id: 'eye-tr', label: '目玉右上', type: 'enemy', x: 271, y: 143, r: 20, on: true },
+          { id: 'eye-bl', label: '目玉左下', type: 'enemy', x: 149, y: 325, r: 20, on: true },
           { id: 'eye-br', label: '目玉右下', type: 'enemy', x: 365, y: 412, r: 20, on: true },
           { id: 'mid',    label: '中ボス',   type: 'enemy', x: 210, y: 234, r: 72, on: true },
           { id: 'book-l', label: '本左',     type: 'book',  x: 146, y: 176, r: 30, on: true },
